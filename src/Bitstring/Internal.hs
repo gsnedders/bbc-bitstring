@@ -20,14 +20,14 @@ data Atom = TerminationAtom |
 getAtomType :: Atom -> Int
 getAtomType TerminationAtom = 1
 getAtomType (NonOffsetAtom len _ _)
-  | len <= 3 = fromInteger len
-  | len > 3  = 4
+  | len <= 3  = fromInteger len
+  | otherwise = 4
 getAtomType (OffsetAtom len True _)
   | len <= 3 = 7
-getAtomType (OffsetAtom len _ _)
-  | len > 3  = 6
 getAtomType (OffsetAtom len False _)
   | len <= 3 = 5
+getAtomType (OffsetAtom _ _ _)
+  | otherwise  = 6
 
 getFillField :: Atom -> Int
 getFillField TerminationAtom          = 0
@@ -39,7 +39,7 @@ getDataField :: Atom -> Int
 getDataField TerminationAtom = 0
 getDataField (NonOffsetAtom _ val (MByteSequence mbytes))
   | length mbytes == 1 &&
-    mbytes !! 0 == (if val then 0 else 0xFF) = 0
+    head mbytes == (if val then 0 else 0xFF) = 0
   | otherwise                                = length mbytes
 getDataField (OffsetAtom _ _ bit) = bit
 
