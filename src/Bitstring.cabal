@@ -65,7 +65,7 @@ library
   -- Base language which the package is written in.
   default-language:    Haskell2010
   
-test-suite Main
+test-suite tests
   type: exitcode-stdio-1.0
   x-uses-tf: true
   build-depends:
