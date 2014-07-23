@@ -1,6 +1,6 @@
 module Bitstring.Internal where
 
-import Data.Bits (popCount, shiftL, (.|.))
+import Data.Bits (popCount, shiftL, shiftR, (.|.), (.&.))
 import Data.Char (chr, ord)
 import Data.Word (Word8)
 import qualified Data.ByteString as B
@@ -43,13 +43,61 @@ getDataField (NonOffsetAtom _ val (MByteSequence mbytes))
   | otherwise                                = length mbytes
 getDataField (OffsetAtom _ _ bit) = bit
 
-serialize :: Atom -> Word8
-serialize TerminationAtom = 0
-serialize (NonOffsetAtom x y z) = fromIntegral $ (getAtomType all) `shiftL` 6 .|.
-                                                 (getFillField all) `shiftL` 4 .|.
-                                                 (getDataField all)
-  where all = NonOffsetAtom x y z
-serialize (OffsetAtom x y z) = fromIntegral $ (getAtomType all) `shiftL` 6 .|.
-                                              (getFillField all) `shiftL` 3 .|.
-                                              (getDataField all)
-  where all = OffsetAtom x y z
+serialize :: Atom -> [Word8]
+serialize TerminationAtom = [0]
+serialize atom@(NonOffsetAtom _ _ _) = [serializeControlByte 4 atom]
+serialize atom@(OffsetAtom _ _ _) = [serializeControlByte 3 atom]
+
+serializeControlByte :: Int -> Atom -> Word8
+serializeControlByte dFieldWidth atom = fromIntegral $ (getAtomType atom) `shiftL` 6 .|.
+                                                       (getFillField atom) `shiftL` dFieldWidth .|.
+                                                       (getDataField atom)
+
+getDFieldWidth :: Integral a => Word8 -> a
+getDFieldWidth atomType
+  | atomType <= 4 = 4
+  | otherwise     = 3
+
+-- parseControlByte :: Word8 -> (Word8, Word8, Word8)
+-- parseControlByte cbyte = (fromIntegral tField,
+--                           fromIntegral $ cbyte `shiftR` dFieldWidth .&. 1,
+--                           fromIntegral $ cbyte .&. (1 `shiftR` dFieldWidth) - 1)
+--   where tField = cbyte `shiftR` 6
+--         dFieldWidth = (getDFieldWidth tField)
+
+-- parseGBytes :: [Word8] -> (Integer, [Word8])
+-- parseGBytes (x:xs) = ((sum $ map (toInteger . popCount) bytes) `shiftR` 4,
+--                       drop (fromIntegral x) xs)
+--   where bytes = take (fromIntegral x) xs
+
+-- parse :: [Word8] -> Atom
+-- parse (cbyte:rest) = case (parseControlByte cbyte) of
+--   (0, 0, 0) -> TerminationAtom
+--   (1, fField, dField) -> NonOffsetAtom 1 (if fField == 1 then True else False) (MByteSequence rest)
+--   (2, fField, dField) -> NonOffsetAtom 2 (if fField == 1 then True else False) (MByteSequence rest)
+--   (3, fField, dField) -> NonOffsetAtom 3 (if fField == 1 then True else False) (MByteSequence rest)
+--   (4, fField, dField) -> NonOffsetAtom gapSize (if fField == 1 then True else False) (MByteSequence mbytes)
+--     where (gapSize, mbytes) = parseGBytes rest
+--   (5, fField, dField) -> OffsetAtom fField False
+
+
+data CategorisedByte = TrueByte | FalseByte | OffsetByte | MapByte deriving (Show, Eq)
+
+categorize :: [Bool] -> CategorisedByte
+categorize xs
+  | all id xs  = TrueByte
+  | all not xs = FalseByte
+  | (sum $ map (\x -> if x then 1 else 0) xs) == 1 = OffsetByte
+  | (sum $ map (\x -> if x then 1 else 0) xs) == 7 = OffsetByte
+  | otherwise = MapByte
+
+grouping :: CategorisedByte -> CategorisedByte -> Bool
+grouping OffsetByte MapByte = True
+grouping MapByte OffsetByte = True
+grouping x y                = x == y
+
+chunk :: Int -> [a] -> [[a]]
+chunk _ [] = []
+chunk n xs
+  | n > 0     = let (firstChunk, rest) = splitAt n xs in firstChunk : chunk n rest
+  | otherwise = error "Non-positive n"
